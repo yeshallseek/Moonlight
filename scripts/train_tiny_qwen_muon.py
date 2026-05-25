@@ -262,6 +262,35 @@ def build_model(args, tokenizer):
     return Qwen2ForCausalLM(config)
 
 
+def model_group_rms(model):
+    groups = {}
+    for name, p in model.named_parameters():
+        if not p.requires_grad:
+            continue
+        if "embed_tokens" in name or "lm_head" in name:
+            group = "embed_or_head"
+        elif "self_attn" in name:
+            group = "attention"
+        elif "mlp" in name:
+            group = "mlp"
+        elif "norm" in name:
+            group = "norm"
+        else:
+            group = "other"
+        value = p.detach().float().square().mean().sqrt().item()
+        groups.setdefault(group, []).append(value)
+
+    summary = {}
+    for group, values in groups.items():
+        summary[group] = {
+            "count": len(values),
+            "mean_rms": sum(values) / len(values),
+            "max_rms": max(values),
+            "min_rms": min(values),
+        }
+    return summary
+
+
 def build_optimizer(args, model):
     if args.optimizer == "adamw":
         return torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.wd, betas=(0.9, 0.95))
@@ -332,6 +361,85 @@ def evaluate(model, loader, device, args):
     return sum(losses) / max(1, len(losses))
 
 
+@torch.no_grad()
+def generate_samples(model, tokenizer, device, args, step, path):
+    prompts = [p for p in args.sample_prompt if p]
+    if not prompts:
+        return
+    model.eval()
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as f:
+        for prompt in prompts:
+            inputs = tokenizer(prompt, return_tensors="pt").to(device)
+            with autocast_context(device, args.bf16):
+                output_ids = model.generate(
+                    **inputs,
+                    do_sample=True,
+                    temperature=args.sample_temperature,
+                    top_p=args.sample_top_p,
+                    max_new_tokens=args.sample_max_new_tokens,
+                    pad_token_id=tokenizer.eos_token_id,
+                    eos_token_id=tokenizer.eos_token_id,
+                )
+            text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+            f.write(
+                json.dumps(
+                    {
+                        "event": "sample",
+                        "step": step,
+                        "prompt": prompt,
+                        "text": text,
+                    },
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+    model.train()
+
+
+def save_checkpoint(args, model, optimizer, step, tokens_seen, final_val_loss):
+    if args.checkpoint_interval <= 0:
+        return None
+    checkpoint_dir = Path(args.out_dir) / "checkpoints"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_path = checkpoint_dir / f"step_{step:08d}.pt"
+    tmp_path = checkpoint_path.with_suffix(".tmp")
+    torch.save(
+        {
+            "step": step,
+            "tokens_seen": tokens_seen,
+            "final_val_loss": final_val_loss,
+            "model": model.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "args": vars(args),
+            "git_commit": git_commit(),
+            "torch": torch.__version__,
+        },
+        tmp_path,
+    )
+    os.replace(tmp_path, checkpoint_path)
+
+    latest_path = checkpoint_dir / "latest.pt"
+    tmp_latest_path = latest_path.with_suffix(".tmp")
+    torch.save(
+        {
+            "step": step,
+            "tokens_seen": tokens_seen,
+            "final_val_loss": final_val_loss,
+            "model": model.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "args": vars(args),
+            "git_commit": git_commit(),
+            "torch": torch.__version__,
+        },
+        tmp_latest_path,
+    )
+    os.replace(tmp_latest_path, latest_path)
+
+    return str(checkpoint_path)
+
+
 def append_jsonl(path, payload):
     if not path:
         return
@@ -369,6 +477,23 @@ def main():
     parser.add_argument("--eval-batches", type=int, default=8)
     parser.add_argument("--eval-interval", type=int, default=25)
     parser.add_argument("--log-interval", type=int, default=10)
+    parser.add_argument("--weight-rms-interval", type=int, default=0)
+    parser.add_argument("--checkpoint-interval", type=int, default=0)
+    parser.add_argument("--sample-interval", type=int, default=0)
+    parser.add_argument("--sample-max-new-tokens", type=int, default=80)
+    parser.add_argument("--sample-temperature", type=float, default=0.8)
+    parser.add_argument("--sample-top-p", type=float, default=0.95)
+    parser.add_argument(
+        "--sample-prompt",
+        action="append",
+        default=[
+            "In this experiment, Muon optimization",
+            "A small language model trained overnight can",
+            "The relationship between gradients and matrices",
+        ],
+    )
+    parser.add_argument("--resume-from", default="")
+    parser.add_argument("--max-run-seconds", type=float, default=0.0)
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"])
     parser.add_argument("--bf16", action=argparse.BooleanOptionalAction, default=True)
@@ -384,6 +509,7 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     metrics_path = out_dir / "metrics.jsonl"
     summary_path = out_dir / "summary.json"
+    samples_path = out_dir / "samples.jsonl"
 
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, trust_remote_code=True)
     tokens, cache_path, token_payload = load_or_tokenize(args, tokenizer)
@@ -415,6 +541,14 @@ def main():
 
     model = build_model(args, tokenizer).to(device)
     optimizer = build_optimizer(args, model)
+    start_step = 0
+    resume_tokens_seen = 0
+    if args.resume_from:
+        checkpoint = torch.load(args.resume_from, map_location=device)
+        model.load_state_dict(checkpoint["model"])
+        optimizer.load_state_dict(checkpoint["optimizer"])
+        start_step = int(checkpoint.get("step", 0))
+        resume_tokens_seen = int(checkpoint.get("tokens_seen", 0))
     param_count = sum(p.numel() for p in model.parameters())
     trainable_count = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
@@ -431,6 +565,8 @@ def main():
         "num_train_blocks": len(train_data),
         "num_val_blocks": len(val_data),
         "torch": torch.__version__,
+        "resume_from": args.resume_from,
+        "start_step": start_step,
     }
     append_jsonl(metrics_path, {"event": "start", **run_header})
 
@@ -438,15 +574,23 @@ def main():
         torch.cuda.reset_peak_memory_stats()
     start = time.time()
     last_log_time = start
-    tokens_seen = 0
+    tokens_seen = resume_tokens_seen
     initial_val = evaluate(model, val_loader, device, args)
-    append_jsonl(metrics_path, {"event": "eval", "step": 0, "val_loss": initial_val})
+    append_jsonl(metrics_path, {"event": "eval", "step": start_step, "val_loss": initial_val})
+    if args.weight_rms_interval:
+        append_jsonl(metrics_path, {"event": "weight_rms", "step": start_step, "groups": model_group_rms(model)})
+    if args.sample_interval:
+        generate_samples(model, tokenizer, device, args, start_step, samples_path)
 
     train_iter = itertools.cycle(train_loader)
     final_train_loss = None
     final_val_loss = initial_val
 
-    for step in range(1, args.max_steps + 1):
+    stop_reason = "max_steps"
+    for step in range(start_step + 1, args.max_steps + 1):
+        if args.max_run_seconds > 0 and (time.time() - start) >= args.max_run_seconds:
+            stop_reason = "max_run_seconds"
+            break
         batch = next(train_iter).to(device, non_blocking=True)
         set_lr(optimizer, args.lr, lr_factor(step - 1, args.max_steps, args.warmup_steps, args.min_lr_ratio))
         with autocast_context(device, args.bf16):
@@ -483,10 +627,26 @@ def main():
             final_val_loss = evaluate(model, val_loader, device, args)
             append_jsonl(metrics_path, {"event": "eval", "step": step, "val_loss": final_val_loss})
 
+        if args.weight_rms_interval > 0 and step % args.weight_rms_interval == 0:
+            append_jsonl(metrics_path, {"event": "weight_rms", "step": step, "groups": model_group_rms(model)})
+
+        if args.sample_interval > 0 and step % args.sample_interval == 0:
+            generate_samples(model, tokenizer, device, args, step, samples_path)
+
+        if args.checkpoint_interval > 0 and step % args.checkpoint_interval == 0:
+            checkpoint_path = save_checkpoint(args, model, optimizer, step, tokens_seen, final_val_loss)
+            append_jsonl(metrics_path, {"event": "checkpoint", "step": step, "path": checkpoint_path})
+
     elapsed_s = time.time() - start
+    if final_train_loss is not None:
+        checkpoint_path = save_checkpoint(args, model, optimizer, step, tokens_seen, final_val_loss)
+    else:
+        checkpoint_path = None
     summary = {
         **run_header,
         "elapsed_s": elapsed_s,
+        "stop_reason": stop_reason,
+        "last_step": step if "step" in locals() else start_step,
         "final_train_loss": final_train_loss,
         "initial_val_loss": initial_val,
         "final_val_loss": final_val_loss,
@@ -494,6 +654,8 @@ def main():
         "tokens_per_s_avg": tokens_seen / max(1e-9, elapsed_s),
         "max_cuda_memory_allocated": torch.cuda.max_memory_allocated() if device.type == "cuda" else None,
         "metrics_path": str(metrics_path),
+        "samples_path": str(samples_path),
+        "latest_checkpoint_path": checkpoint_path,
         "summary_path": str(summary_path),
     }
     with summary_path.open("w") as f:

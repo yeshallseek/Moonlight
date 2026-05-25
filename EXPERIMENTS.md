@@ -49,3 +49,6 @@ Append notable runs here and keep machine-readable records in `experiments/runs.
 - 2026-05-25 00:14 PDT: ran 300-step OpenWebText optimizer suite; outputs in `artifacts/runs/*_300/`.
 - 2026-05-25 00:15-00:18 PDT: ran 3,000-step OpenWebText optimizer suite; outputs in `artifacts/runs/*_3000/`.
 - 2026-05-25 00:18 PDT: generated `reports/results-summary.md`, figures, and `reports/final-report.md`.
+- 2026-05-25 00:43 PDT: started larger overnight experiment setup. Gracefully stopped `llama-server` PID 4111641 with `SIGTERM` to reclaim RTX 5090 VRAM for training; GPU memory dropped from about 27.5 GiB used to 2 MiB used.
+- 2026-05-25 00:44-00:46 PDT: dry-ran larger models with telemetry/checkpoints/samples. Selected 175.7M-parameter Qwen-like model (`hidden_size=640`, `num_layers=12`, `seq_len=256`, `batch_size=16`) after Muon and AdamW dry runs fit within about 12 GiB CUDA allocation.
+- 2026-05-25 00:47 PDT: ran a 50-step Muon calibration for the selected 175.7M model; measured about 37k tokens/sec with 11.7 GiB max CUDA allocation. Updated overnight suite to target 60k steps per optimizer run.
