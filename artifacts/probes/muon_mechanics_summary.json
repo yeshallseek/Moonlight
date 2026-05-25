@@ -1,0 +1,92 @@
+{
+  "kind": "muon_mechanics_probe",
+  "timestamp": "2026-05-25T00:13:17-0700",
+  "elapsed_s": 0.3628270626068115,
+  "git_commit": "c2ad5b20c605086526a179d36901bfc41b52b44b",
+  "device": "cuda",
+  "seed": 1234,
+  "ns_steps": 5,
+  "records_path": "artifacts/probes/muon_mechanics_records.csv",
+  "shape_summary": [
+    {
+      "shape": "16x16",
+      "theoretical_unscaled_rms": 0.25,
+      "exact_unscaled_rms_mean": 0.2499999962747097,
+      "exact_scaled_rms_mean": 0.19999999925494194,
+      "observed_unscaled_rms_mean": 0.2319550272077322,
+      "observed_scaled_rms_mean": 0.18556402623653412,
+      "singular_mean_mean": 0.9125560969114304,
+      "trials": 8
+    },
+    {
+      "shape": "16x64",
+      "theoretical_unscaled_rms": 0.125,
+      "exact_unscaled_rms_mean": 0.12500000186264515,
+      "exact_scaled_rms_mean": 0.20000001043081284,
+      "observed_unscaled_rms_mean": 0.11271484009921551,
+      "observed_scaled_rms_mean": 0.18034375086426735,
+      "singular_mean_mean": 0.8883694931864738,
+      "trials": 8
+    },
+    {
+      "shape": "64x16",
+      "theoretical_unscaled_rms": 0.125,
+      "exact_unscaled_rms_mean": 0.12499999348074198,
+      "exact_scaled_rms_mean": 0.19999998807907104,
+      "observed_unscaled_rms_mean": 0.11230661999434233,
+      "observed_scaled_rms_mean": 0.17969059571623802,
+      "singular_mean_mean": 0.8830369561910629,
+      "trials": 8
+    },
+    {
+      "shape": "64x256",
+      "theoretical_unscaled_rms": 0.0625,
+      "exact_unscaled_rms_mean": 0.06250000232830644,
+      "exact_scaled_rms_mean": 0.20000001601874828,
+      "observed_unscaled_rms_mean": 0.0535031040199101,
+      "observed_scaled_rms_mean": 0.17120993696153164,
+      "singular_mean_mean": 0.8437538221478462,
+      "trials": 8
+    },
+    {
+      "shape": "256x64",
+      "theoretical_unscaled_rms": 0.0625,
+      "exact_unscaled_rms_mean": 0.06250000046566129,
+      "exact_scaled_rms_mean": 0.2000000085681677,
+      "observed_unscaled_rms_mean": 0.0534387556836009,
+      "observed_scaled_rms_mean": 0.17100402154028416,
+      "singular_mean_mean": 0.8428756818175316,
+      "trials": 8
+    },
+    {
+      "shape": "128x512",
+      "theoretical_unscaled_rms": 0.044194173824159216,
+      "exact_unscaled_rms_mean": 0.04419417632743716,
+      "exact_scaled_rms_mean": 0.20000002533197403,
+      "observed_unscaled_rms_mean": 0.03837626054883003,
+      "observed_scaled_rms_mean": 0.17367113567888737,
+      "singular_mean_mean": 0.8534590005874634,
+      "trials": 8
+    },
+    {
+      "shape": "512x128",
+      "theoretical_unscaled_rms": 0.044194173824159216,
+      "exact_unscaled_rms_mean": 0.044194173999130726,
+      "exact_scaled_rms_mean": 0.20000001415610313,
+      "observed_unscaled_rms_mean": 0.03838100144639611,
+      "observed_scaled_rms_mean": 0.17369259148836136,
+      "singular_mean_mean": 0.8536574691534042,
+      "trials": 8
+    },
+    {
+      "shape": "256x256",
+      "theoretical_unscaled_rms": 0.0625,
+      "exact_unscaled_rms_mean": 0.06249999953433871,
+      "exact_scaled_rms_mean": 0.20000000670552254,
+      "observed_unscaled_rms_mean": 0.056471128948032856,
+      "observed_scaled_rms_mean": 0.18070761486887932,
+      "singular_mean_mean": 0.8863386362791061,
+      "trials": 8
+    }
+  ]
+}
